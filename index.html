@@ -477,6 +477,91 @@
             75% { transform: translateX(2px); }
         }
 
+        /* Captcha notification styles */
+        .captcha-notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(255, 107, 107, 0.3);
+            z-index: 1000;
+            animation: captchaSlideIn 0.5s ease-out;
+            max-width: 300px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .captcha-notification.hide {
+            animation: captchaSlideOut 0.5s ease-out forwards;
+        }
+
+        @keyframes captchaSlideIn {
+            from { 
+                transform: translateX(100%); 
+                opacity: 0; 
+            }
+            to { 
+                transform: translateX(0); 
+                opacity: 1; 
+            }
+        }
+
+        @keyframes captchaSlideOut {
+            from { 
+                transform: translateX(0); 
+                opacity: 1; 
+            }
+            to { 
+                transform: translateX(100%); 
+                opacity: 0; 
+            }
+        }
+
+        .captcha-notification h4 {
+            margin: 0 0 8px 0;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .captcha-notification p {
+            margin: 0;
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+
+        .captcha-notification .close-btn {
+            position: absolute;
+            top: 5px;
+            right: 10px;
+            background: none;
+            border: none;
+            color: white;
+            font-size: 1.2rem;
+            cursor: pointer;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+
+        .captcha-notification .close-btn:hover {
+            opacity: 1;
+        }
+
+        .log-captcha { 
+            color: #ff6b6b; 
+            border-left-color: #ff6b6b;
+            font-weight: bold;
+            animation: logFadeIn 0.5s ease-out forwards, captchaPulse 2s ease-out;
+        }
+
+        @keyframes captchaPulse {
+            0%, 100% { box-shadow: none; }
+            50% { box-shadow: 0 0 15px rgba(255, 107, 107, 0.4); }
+        }
+
         .guide-section {
             background: white;
             border-radius: 15px;
@@ -701,6 +786,10 @@
                     <div>Estimated Earnings</div>
                 </div>
                 <div class="stat-card">
+                    <div class="stat-number" id="captchasDetected">0</div>
+                    <div>Captchas Detected</div>
+                </div>
+                <div class="stat-card">
                     <div class="stat-number" id="activeTime">0m</div>
                     <div>Active Time</div>
                 </div>
@@ -820,6 +909,16 @@
                                     </div>
                                 </label>
                             </div>
+                            <div class="platform-item" data-platform="gobranded">
+                                <input type="checkbox" id="gobranded">
+                                <label for="gobranded">
+                                    <div class="platform-icon">🏷️</div>
+                                    <div class="platform-info">
+                                        <div class="platform-name">GoBranded Surveys</div>
+                                        <div class="platform-stats">$0.75-4.00 per survey</div>
+                                    </div>
+                                </label>
+                            </div>
                         </div>
                         <div class="platform-summary">
                             <span id="selectedPlatforms">2 platforms selected</span>
@@ -842,6 +941,10 @@
                     <div class="form-group" style="display: flex; justify-content: space-between; align-items: center;">
                         <label>Screenshot Logging</label>
                         <div class="toggle-switch active" id="screenshotLog"></div>
+                    </div>
+                    <div class="form-group" style="display: flex; justify-content: space-between; align-items: center;">
+                        <label>Advanced Captcha Detection</label>
+                        <div class="toggle-switch active" id="captchaDetection"></div>
                     </div>
                 </div>
 
@@ -896,12 +999,12 @@
                 
                 <div class="guide-step">
                     <strong>Enable Safety Features</strong><br>
-                    Keep Human-like Delays and Smart Error Recovery enabled to avoid detection and handle errors gracefully.
+                    Keep Human-like Delays and Smart Error Recovery enabled to avoid detection and handle errors gracefully. Enable Advanced Captcha Detection to receive notifications when captchas are encountered.
                 </div>
                 
                 <div class="guide-step">
                     <strong>Select Survey Platforms</strong><br>
-                    Choose which survey sites you want the bot to work with. Start with one platform to test functionality.
+                    Choose which survey sites you want the bot to work with. Now includes support for GoBranded Surveys (/members). Start with one platform to test functionality.
                 </div>
                 
                 <div class="guide-step">
@@ -928,7 +1031,9 @@
             earnings: 0,
             startTime: null,
             responses: new Map(),
-            selectedPlatforms: ['survey-junkie', 'swagbucks']
+            selectedPlatforms: ['survey-junkie', 'swagbucks'],
+            captchasDetected: 0,
+            captchaNotificationQueue: []
         };
 
         // Create animated background particles
@@ -1157,14 +1262,34 @@
         function simulateSurveyActivity() {
             if (!botState.isRunning || botState.isPaused) return;
             
-            const activities = [
+            const baseActivities = [
                 { text: 'Analyzing survey question type', type: 'info' },
                 { text: 'Generating response based on personality profile', type: 'info' },
                 { text: 'Applying human-like delay patterns', type: 'info' },
                 { text: 'Question answered successfully', type: 'success' },
-                { text: 'Moving to next survey section', type: 'info' },
-                { text: 'Survey completed successfully', type: 'success', isCompletion: true }
+                { text: 'Moving to next survey section', type: 'info' }
             ];
+
+            // Add captcha detection scenarios randomly (15% chance)
+            const shouldShowCaptcha = Math.random() < 0.15 && document.getElementById('captchaDetection').classList.contains('active');
+            
+            let activities;
+            if (shouldShowCaptcha) {
+                activities = [
+                    ...baseActivities.slice(0, 2),
+                    { text: 'Captcha detected on survey page', type: 'captcha', isCaptcha: true },
+                    { text: 'Pausing for user intervention', type: 'warning' },
+                    { text: 'Waiting for captcha resolution...', type: 'info' },
+                    { text: 'Captcha resolved, continuing survey', type: 'success' },
+                    ...baseActivities.slice(2),
+                    { text: 'Survey completed successfully', type: 'success', isCompletion: true }
+                ];
+            } else {
+                activities = [
+                    ...baseActivities,
+                    { text: 'Survey completed successfully', type: 'success', isCompletion: true }
+                ];
+            }
             
             let activityIndex = 0;
             
@@ -1175,18 +1300,28 @@
                     const activity = activities[activityIndex];
                     logActivity(activity.text, activity.type);
                     
+                    if (activity.isCaptcha) {
+                        botState.captchasDetected++;
+                        showCaptchaNotification();
+                    }
+                    
                     if (activity.isCompletion) {
                         botState.surveysCompleted++;
                         botState.successfulSurveys++;
-                        botState.earnings += Math.random() * 2 + 0.5; // Random earnings between $0.50-$2.50
+                        
+                        // Adjust earnings based on platform
+                        const selectedPlatform = botState.selectedPlatforms[Math.floor(Math.random() * botState.selectedPlatforms.length)];
+                        const platformEarnings = getPlatformEarnings(selectedPlatform);
+                        botState.earnings += platformEarnings;
+                        
                         updateStatistics();
                         activityIndex = 0; // Reset for next survey
                     } else {
                         activityIndex++;
                     }
                     
-                    // Random delay between activities
-                    const delay = Math.random() * 3000 + 1000; // 1-4 seconds
+                    // Random delay between activities (longer delay for captcha resolution)
+                    const delay = activity.isCaptcha ? Math.random() * 5000 + 3000 : Math.random() * 3000 + 1000;
                     setTimeout(runNextActivity, delay);
                 } else {
                     // Start new survey
@@ -1215,6 +1350,57 @@
             }
         }
 
+        // Get platform-specific earnings
+        function getPlatformEarnings(platform) {
+            const platformRanges = {
+                'survey-junkie': { min: 0.5, max: 3.0 },
+                'swagbucks': { min: 0.25, max: 2.0 },
+                'inboxdollars': { min: 0.5, max: 5.0 },
+                'mypoints': { min: 0.3, max: 1.5 },
+                'toluna': { min: 1.0, max: 5.0 },
+                'yougov': { min: 0.5, max: 2.0 },
+                'gobranded': { min: 0.75, max: 4.0 }
+            };
+            
+            const range = platformRanges[platform] || { min: 0.5, max: 2.5 };
+            return Math.random() * (range.max - range.min) + range.min;
+        }
+
+        // Show captcha notification
+        function showCaptchaNotification() {
+            // Remove any existing notifications first
+            const existingNotifications = document.querySelectorAll('.captcha-notification');
+            existingNotifications.forEach(notification => notification.remove());
+            
+            const notification = document.createElement('div');
+            notification.className = 'captcha-notification';
+            notification.innerHTML = `
+                <button class="close-btn" onclick="hideCaptchaNotification(this)">&times;</button>
+                <h4>🤖 Captcha Detected</h4>
+                <p>Please solve the captcha manually to continue the survey. The bot will wait for your intervention.</p>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            // Auto-hide after 8 seconds
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    hideCaptchaNotification(notification.querySelector('.close-btn'));
+                }
+            }, 8000);
+        }
+
+        // Hide captcha notification
+        function hideCaptchaNotification(closeBtn) {
+            const notification = closeBtn.closest('.captcha-notification');
+            notification.classList.add('hide');
+            setTimeout(() => {
+                if (notification.parentNode) {
+                    notification.remove();
+                }
+            }, 500);
+        }
+
         // Update statistics display
         function updateStatistics() {
             document.getElementById('surveysCompleted').textContent = botState.surveysCompleted;
@@ -1224,6 +1410,8 @@
             document.getElementById('successRate').textContent = `${successRate}%`;
             
             document.getElementById('earnings').textContent = `$${botState.earnings.toFixed(2)}`;
+            
+            document.getElementById('captchasDetected').textContent = botState.captchasDetected;
             
             if (botState.startTime) {
                 const activeMinutes = Math.floor((new Date() - botState.startTime) / 60000);
